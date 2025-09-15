@@ -1,2 +1,167 @@
-# -2
-ㅁ
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>복리 계산기 앱 (USD 기준)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  body { font-family: 'Arial', sans-serif; margin: 0; padding: 0; background: #f3f4f6; }
+  .container { max-width: 480px; margin: auto; padding: 15px; }
+  h1 { text-align: center; font-size: 24px; margin-bottom: 15px; color: #4f46e5; }
+  .card { background: #fff; border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+  label { display: block; font-size: 16px; margin-bottom: 5px; color: #374151; }
+  input { width: 100%; padding: 10px; font-size: 16px; border-radius: 8px; border: 1px solid #d1d5db; margin-bottom: 10px; box-sizing: border-box; }
+  button { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px; border: none; background: #4f46e5; color: #fff; margin-bottom: 10px; cursor: pointer; transition: 0.2s; }
+  button:hover { background: #3730a3; }
+  h2, h3 { text-align: center; margin: 8px 0; }
+  .table-container { overflow-x: auto; margin-top: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border: 1px solid #d1d5db; padding: 8px; text-align: center; }
+  thead { background-color: #e5e7eb; }
+  canvas { width: 100% !important; height: auto !important; margin-top: 10px; border-radius: 12px; background: #fff; padding: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>💹 복리 계산기 앱</h1>
+
+  <div class="card">
+    <label>원금 (USD)</label>
+    <input type="number" id="principal" value="1000">
+    <button onclick="setPrincipal()">원금 설정</button>
+  </div>
+
+  <div class="card">
+    <label>오늘 수익률 (%)</label>
+    <input type="number" id="rate">
+    <button onclick="addRecord()">기록 추가</button>
+  </div>
+
+  <div class="card">
+    <h2 id="balanceDisplay">현재 잔고: $0 (₩0)</h2>
+    <h3 id="exchangeRateDisplay">환율: 불러오는 중...</h3>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="card table-container">
+    <table id="recordsTable">
+      <thead>
+        <tr>
+          <th>날짜</th>
+          <th>수익률 (%)</th>
+          <th>잔고 (USD)</th>
+          <th>환산 (KRW)</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let records = JSON.parse(localStorage.getItem("records")) || [];
+let principal = parseFloat(localStorage.getItem("principal")) || 1000;
+let balance = records.length > 0 ? records[records.length-1].balance : principal;
+let usdToKrw = 0;
+
+const ctx = document.getElementById('chart').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: records.map(r => r.date),
+    datasets: [{
+      label: '잔고 (USD)',
+      data: records.map(r => r.balance),
+      borderColor: '#4f46e5',
+      backgroundColor: 'rgba(79,70,229,0.2)',
+      fill: true,
+      tension: 0.3,
+      pointRadius: 4,
+      pointBackgroundColor: '#4f46e5'
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: true } },
+    scales: { y: { beginAtZero: false } }
+  }
+});
+
+function setPrincipal() {
+  principal = parseFloat(document.getElementById("principal").value);
+  balance = principal;
+  records = [];
+  saveData();
+  updateDisplay();
+}
+
+function addRecord() {
+  const rate = parseFloat(document.getElementById("rate").value);
+  if (isNaN(rate)) return;
+  balance *= (1 + rate/100);
+  const today = new Date().toLocaleDateString();
+  records.push({ date: today, rate: rate, balance: balance });
+  saveData();
+  updateDisplay();
+}
+
+function saveData() {
+  localStorage.setItem("records", JSON.stringify(records));
+  localStorage.setItem("principal", principal);
+}
+
+function updateDisplay() {
+  const krwValue = usdToKrw ? Math.round(balance * usdToKrw).toLocaleString() : "계산중...";
+  document.getElementById("balanceDisplay").textContent =
+    `현재 잔고: $${balance.toFixed(2)} (₩${krwValue})`;
+
+  const tbody = document.getElementById("recordsTable").querySelector("tbody");
+  tbody.innerHTML = "";
+  records.forEach(r => {
+    const krwVal = usdToKrw ? Math.round(r.balance * usdToKrw).toLocaleString() : "계산중";
+    const row = `<tr>
+      <td>${r.date}</td>
+      <td>${r.rate}%</td>
+      <td>$${r.balance.toFixed(2)}</td>
+      <td>₩${krwVal}</td>
+    </tr>`;
+    tbody.innerHTML += row;
+  });
+
+  chart.data.labels = records.map(r => r.date);
+  chart.data.datasets[0].data = records.map(r => r.balance);
+  chart.update();
+}
+
+async function fetchExchangeRate() {
+  const todayStr = new Date().toLocaleDateString();
+  const lastFetch = localStorage.getItem("lastExchangeFetch");
+
+  if (lastFetch === todayStr && localStorage.getItem("usdToKrw")) {
+    usdToKrw = parseFloat(localStorage.getItem("usdToKrw"));
+    document.getElementById("exchangeRateDisplay").textContent =
+      `환율: 1 USD ≈ ₩${usdToKrw.toLocaleString()}`;
+    updateDisplay();
+    return;
+  }
+
+  try {
+    const res = await fetch("https://api.exchangerate.host/latest?base=USD&symbols=KRW");
+    const data = await res.json();
+    usdToKrw = data.rates.KRW;
+    localStorage.setItem("usdToKrw", usdToKrw);
+    localStorage.setItem("lastExchangeFetch", todayStr);
+    document.getElementById("exchangeRateDisplay").textContent =
+      `환율: 1 USD ≈ ₩${usdToKrw.toLocaleString()}`;
+    updateDisplay();
+  } catch (e) {
+    document.getElementById("exchangeRateDisplay").textContent = "환율 불러오기 실패";
+  }
+}
+
+fetchExchangeRate();
+updateDisplay();
+</script>
+</body>
+</html>
